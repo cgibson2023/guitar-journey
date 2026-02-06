@@ -1,5 +1,10 @@
-import { useState } from "react";
-import { Play, Check, Lock, Music, Award, ChevronRight, ArrowLeft, Star } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Play, Check, Lock, Music, ChevronRight, ArrowLeft, LogOut, User } from "lucide-react";
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
+import { fetchAuthSession, signOut, getCurrentUser } from 'aws-amplify/auth';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 // ─── CHORD DATA ─────────────────────────────────────────────────────────────
 const CHORDS = {
@@ -341,7 +346,7 @@ const CATEGORIES = {
       {
         id: "song-1",
         title: "Love Me Do",
-        description: "The Beatles debut hit — only 3 chords: G, C, D. A perfect first song!",
+        description: "The Beatles' debut hit — only 3 chords: G, C, D. A perfect first song!",
         duration: "12 min",
         chord: "G",
         youtubeId: "av5zQRjnMTY",
@@ -478,20 +483,91 @@ function ChordDiagram({ chordName }) {
   );
 }
 
-// ─── MAIN APP ───────────────────────────────────────────────────────────────
-export default function GuitarJourneyApp() {
+// ─── MAIN APP (WITH AUTH) ───────────────────────────────────────────────────
+function GuitarJourneyApp() {
   const [view, setView] = useState("home");
   const [selectedCategory, setSelectedCategory] = useState("basics");
   const [activeLesson, setActiveLesson] = useState(null);
   const [completed, setCompleted] = useState(new Set());
   const [videoOpen, setVideoOpen] = useState(false);
+  const [dbClient, setDbClient] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [userName, setUserName] = useState("");
 
   const totalLessons = Object.values(CATEGORIES).reduce((sum, c) => sum + c.lessons.length, 0);
   const progressPercent = Math.round((completed.size / totalLessons) * 100);
 
+  // Initialize DynamoDB client and load user progress
+  useEffect(() => {
+    async function initializeUser() {
+      try {
+        // Get current user
+        const user = await getCurrentUser();
+        setUserId(user.userId);
+        setUserName(user.signInDetails?.loginId || "User");
+
+        // Get AWS credentials from Cognito
+        const session = await fetchAuthSession();
+        
+        const client = new DynamoDBClient({
+          region: "us-east-1", // Change to your region
+          credentials: session.credentials,
+        });
+        
+        const docClient = DynamoDBDocumentClient.from(client);
+        setDbClient(docClient);
+
+        // Load existing progress from DynamoDB
+        const command = new GetCommand({
+          TableName: "guitar-journey-user-progress",
+          Key: { userId: user.userId },
+        });
+
+        const response = await docClient.send(command);
+        if (response.Item?.completedLessons) {
+          setCompleted(new Set(response.Item.completedLessons));
+        }
+      } catch (error) {
+        console.error("Error initializing user:", error);
+      }
+    }
+
+    initializeUser();
+  }, []);
+
+  // Save progress to DynamoDB
+  async function saveProgress(lessonId) {
+    const newCompleted = new Set([...completed, lessonId]);
+    setCompleted(newCompleted);
+
+    if (dbClient && userId) {
+      try {
+        const command = new PutCommand({
+          TableName: "guitar-journey-user-progress",
+          Item: {
+            userId: userId,
+            completedLessons: Array.from(newCompleted),
+            lastUpdated: new Date().toISOString(),
+          },
+        });
+        await dbClient.send(command);
+      } catch (error) {
+        console.error("Error saving progress:", error);
+      }
+    }
+  }
+
   function markComplete(id) {
-    setCompleted((prev) => new Set([...prev, id]));
+    saveProgress(id);
     setView("home");
+  }
+
+  async function handleSignOut() {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
   }
 
   // ── LESSON VIEW ─────────────────────────────────────────────────────────
@@ -575,6 +651,22 @@ export default function GuitarJourneyApp() {
     <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #FFF9F0 0%, #FFE8E8 100%)", fontFamily: "'Work Sans', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Work+Sans:wght@400;500;600&display=swap');`}</style>
       <div className="max-w-2xl mx-auto p-4 pt-6">
+
+        {/* User header with sign out */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+            <User size={20} color="#FF6B6B" />
+            <span className="text-sm" style={{ color: "#636E72" }}>Welcome, {userName}</span>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+            style={{ background: "white", color: "#636E72", border: "1px solid #E8E8E8" }}
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
 
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-3 mb-2">
@@ -683,5 +775,14 @@ export default function GuitarJourneyApp() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── AUTHENTICATOR WRAPPER ──────────────────────────────────────────────────
+export default function App() {
+  return (
+    <Authenticator>
+      {({ signOut, user }) => <GuitarJourneyApp />}
+    </Authenticator>
   );
 }
