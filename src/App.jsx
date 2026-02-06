@@ -1,10 +1,138 @@
 import { useState, useEffect } from "react";
-import { Play, Check, Lock, Music, ChevronRight, ArrowLeft, LogOut, User } from "lucide-react";
+import { Play, Check, Lock, Music, ChevronRight, ArrowLeft, LogOut, User, Award, Star, Trophy, Zap, Target, Calendar } from "lucide-react";
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { fetchAuthSession, signOut, getCurrentUser } from 'aws-amplify/auth';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+
+// ─── ACHIEVEMENTS DATA ──────────────────────────────────────────────────────
+const ACHIEVEMENTS = {
+  firstChord: {
+    id: "firstChord",
+    title: "First Chord",
+    description: "Complete your first chord lesson",
+    icon: "🎸",
+    color: "#FF6B6B",
+    points: 10,
+    check: (progress) => progress.completedLessons.some(id => id.startsWith("chords-"))
+  },
+  chordMaster: {
+    id: "chordMaster",
+    title: "Chord Master",
+    description: "Learn all 8 essential chords",
+    icon: "🎯",
+    color: "#4ECDC4",
+    points: 50,
+    check: (progress) => {
+      const chordLessons = ["chords-1", "chords-2", "chords-3", "chords-4", "chords-5", "chords-6", "chords-7", "chords-8"];
+      return chordLessons.every(id => progress.completedLessons.includes(id));
+    }
+  },
+  firstSong: {
+    id: "firstSong",
+    title: "First Song",
+    description: "Complete your first Beatles song",
+    icon: "🎵",
+    color: "#FDCB6E",
+    points: 25,
+    check: (progress) => progress.completedLessons.some(id => id.startsWith("song-"))
+  },
+  beatlesFan: {
+    id: "beatlesFan",
+    title: "Beatles Fan",
+    description: "Learn all 6 Beatles songs",
+    icon: "🎤",
+    color: "#A29BFE",
+    points: 100,
+    check: (progress) => {
+      const songs = ["song-1", "song-2", "song-3", "song-4", "song-5", "song-6"];
+      return songs.every(id => progress.completedLessons.includes(id));
+    }
+  },
+  dedicated: {
+    id: "dedicated",
+    title: "Dedicated Learner",
+    description: "Practice 3 days in a row",
+    icon: "🔥",
+    color: "#FF6B6B",
+    points: 30,
+    check: (progress) => progress.streakDays >= 3
+  },
+  weekWarrior: {
+    id: "weekWarrior",
+    title: "Week Warrior",
+    description: "Practice 7 days in a row",
+    icon: "⚡",
+    color: "#F39C12",
+    points: 50,
+    check: (progress) => progress.streakDays >= 7
+  },
+  speedster: {
+    id: "speedster",
+    title: "Quick Learner",
+    description: "Complete 5 lessons in one day",
+    icon: "🚀",
+    color: "#E74C3C",
+    points: 40,
+    check: (progress) => {
+      if (!progress.dailyLessons) return false;
+      const today = new Date().toISOString().split('T')[0];
+      return (progress.dailyLessons[today] || 0) >= 5;
+    }
+  },
+  basics: {
+    id: "basics",
+    title: "Foundation Builder",
+    description: "Complete all Getting Started lessons",
+    icon: "🏗️",
+    color: "#95E1D3",
+    points: 20,
+    check: (progress) => {
+      const basics = ["basics-1", "basics-2", "basics-3"];
+      return basics.every(id => progress.completedLessons.includes(id));
+    }
+  },
+  transitions: {
+    id: "transitions",
+    title: "Smooth Operator",
+    description: "Master all chord transitions",
+    icon: "🔄",
+    color: "#A29BFE",
+    points: 40,
+    check: (progress) => {
+      const trans = ["trans-1", "trans-2", "trans-3"];
+      return trans.every(id => progress.completedLessons.includes(id));
+    }
+  },
+  halfwayThere: {
+    id: "halfwayThere",
+    title: "Halfway There",
+    description: "Complete 50% of all lessons",
+    icon: "🎯",
+    color: "#3498DB",
+    points: 60,
+    check: (progress) => progress.completedLessons.length >= 10
+  },
+  completionist: {
+    id: "completionist",
+    title: "Guitar Hero",
+    description: "Complete ALL lessons",
+    icon: "🏆",
+    color: "#F39C12",
+    points: 200,
+    check: (progress) => progress.completedLessons.length >= 20
+  },
+  earlyBird: {
+    id: "earlyBird",
+    title: "Early Bird",
+    description: "Start your guitar journey!",
+    icon: "🌅",
+    color: "#FF6B6B",
+    points: 5,
+    check: (progress) => progress.completedLessons.length >= 1
+  },
+};
 
 // ─── CHORD DATA ─────────────────────────────────────────────────────────────
 const CHORDS = {
@@ -131,7 +259,7 @@ const CATEGORIES = {
         description: "Learn proper posture so you can play comfortably for hours.",
         duration: "5 min",
         chord: null,
-        youtubeId: "gYAxwwfSetM",
+        youtubeId: "6W7sdx4_guw", // Marty Music - How to Hold a Guitar
         steps: [
           "Sit upright with the guitar body resting on your right leg.",
           "The neck should point slightly upward — not flat.",
@@ -145,7 +273,7 @@ const CATEGORIES = {
         description: "Know your instrument before you start playing.",
         duration: "4 min",
         chord: null,
-        youtubeId: "gYAxwwfSetM",
+        youtubeId: "pRhVfDKUr0A", // Guitareo - Parts of the Guitar
         steps: [
           "The HEAD is at the top — it holds the tuning pegs.",
           "The NECK is the long part you hold with your left hand.",
@@ -160,7 +288,7 @@ const CATEGORIES = {
         description: "The foundation of rhythm guitar playing.",
         duration: "6 min",
         chord: null,
-        youtubeId: "gYAxwwfSetM",
+        youtubeId: "qH35wMCBUto", // Andy Guitar - How to Strum
         steps: [
           "Use your thumb or a pick to brush across all the strings downward.",
           "Keep your strumming hand moving in a steady rhythm — even if you miss.",
@@ -181,7 +309,7 @@ const CATEGORIES = {
         description: "The very first chord most guitarists learn — just 2 fingers!",
         duration: "7 min",
         chord: "Em",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "u0n0av4QpJ8", // JustinGuitar - E minor chord
         steps: [
           "Place your 2nd finger on the 4th string, 2nd fret.",
           "Place your 3rd finger on the 3rd string, 2nd fret.",
@@ -195,7 +323,7 @@ const CATEGORIES = {
         description: "A warm, full-sounding chord that's in tons of Beatles songs.",
         duration: "8 min",
         chord: "G",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "EqwRbuUOx4I", // GuitarLessons365 - G chord
         steps: [
           "Place your 1st finger on the 6th string, 3rd fret.",
           "Place your 2nd finger on the 2nd string (from bottom), 3rd fret.",
@@ -209,7 +337,7 @@ const CATEGORIES = {
         description: "Pairs perfectly with G and Em — a core Beatles chord.",
         duration: "7 min",
         chord: "D",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "X-v8B_U88eM", // Marty Music - D chord
         steps: [
           "Only play the top 4 strings (mute the bottom 2 with your thumb).",
           "Place your 1st finger on the 3rd string, 2nd fret.",
@@ -223,7 +351,7 @@ const CATEGORIES = {
         description: "One of the most important chords in all of music.",
         duration: "8 min",
         chord: "C",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "ksCjmlFKZ1w", // Andy Guitar - C chord
         steps: [
           "Place your 1st finger on the 2nd string, 1st fret.",
           "Place your 2nd finger on the 4th string, 2nd fret.",
@@ -237,7 +365,7 @@ const CATEGORIES = {
         description: "A beautiful, emotional chord. Essential for many classics.",
         duration: "7 min",
         chord: "Am",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "VJOtn1o7O-I", // JustinGuitar - A minor
         steps: [
           "Place your 1st finger on the 2nd string, 1st fret.",
           "Place your 2nd finger on the 3rd string, 2nd fret.",
@@ -251,7 +379,7 @@ const CATEGORIES = {
         description: "The major version of Am — bright and uplifting!",
         duration: "7 min",
         chord: "A",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "Xnf6ZDAdRhc", // GuitarLessons365 - A chord
         steps: [
           "Bunch your 1st, 2nd, and 3rd fingers together on the 2nd fret.",
           "Place them on the 2nd, 3rd, and 4th strings.",
@@ -265,7 +393,7 @@ const CATEGORIES = {
         description: "Full, resonant, and rock-ready. All 6 strings ring!",
         duration: "6 min",
         chord: "E",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "sSmhPkdPSLo", // JustinGuitar - E major
         steps: [
           "Place your 1st finger on the 4th string (G string), 1st fret.",
           "Place your 2nd finger on the 5th string, 2nd fret.",
@@ -279,7 +407,7 @@ const CATEGORIES = {
         description: "Add flavor and bluesy feeling to your playing.",
         duration: "10 min",
         chord: "B7",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "cBWAQ8a7kh0", // Marty Music - 7th chords
         steps: [
           "Start with A7 — it only uses 2 fingers (easiest of the three).",
           "Move to E7 — also 2 fingers, but on a different string group.",
@@ -300,7 +428,7 @@ const CATEGORIES = {
         description: "The most common two-chord switch in rock music.",
         duration: "6 min",
         chord: "Em",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "ySjsyqrNJQE", // GuitarLessons365 - chord changes
         steps: [
           "Hold Em and strum 4 times slowly.",
           "Without lifting your Em fingers, add the G fingers.",
@@ -314,7 +442,7 @@ const CATEGORIES = {
         description: "The magic three-chord loop behind dozens of hit songs.",
         duration: "8 min",
         chord: "G",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "7S94ohEizNM", // Andy Guitar - chord transitions
         steps: [
           "Practise G → D first until it feels natural.",
           "Then practise D → Em until that's smooth too.",
@@ -328,7 +456,7 @@ const CATEGORIES = {
         description: "A versatile four-chord progression used in many classics.",
         duration: "10 min",
         chord: "C",
-        youtubeId: "ZjnIJNRW7fk",
+        youtubeId: "73W3yXuKLW4", // Marty Music - chord progressions
         steps: [
           "Practise each two-chord pair: C→Am, Am→G, G→Em, Em→C.",
           "Once each pair is smooth, chain them together.",
@@ -349,7 +477,7 @@ const CATEGORIES = {
         description: "The Beatles' debut hit — only 3 chords: G, C, D. A perfect first song!",
         duration: "12 min",
         chord: "G",
-        youtubeId: "av5zQRjnMTY",
+        youtubeId: "ys3H6-L6LlM", // Marty Music - Love Me Do
         steps: [
           "Learn the verse: strum G for 4 beats, then C for 4 beats.",
           "The bridge adds D — strum it for 4 beats before going back to G.",
@@ -364,7 +492,7 @@ const CATEGORIES = {
         description: "Pure rock energy! Just D, G, and A — and it's super repetitive.",
         duration: "10 min",
         chord: "D",
-        youtubeId: "JnMIjIKsXAg",
+        youtubeId: "JZTmQABKpOo", // GuitarLessons365 - Twist and Shout
         steps: [
           "The whole song loops: D → G → A → A.",
           "Strum with a driving down-strum pattern to capture the energy.",
@@ -375,41 +503,11 @@ const CATEGORIES = {
       },
       {
         id: "song-3",
-        title: "Don't Let Me Down",
-        description: "A soulful rocker with just 3 easy chords. Capo 2nd fret for sing-along.",
-        duration: "12 min",
-        chord: "D",
-        youtubeId: "aMo1t4rCHBs",
-        steps: [
-          "Put your capo on the 2nd fret (or play open if you prefer).",
-          "The verse uses D and A7 — practise switching between them.",
-          "The chorus brings in Em — listen for where it comes in.",
-          "Play slowly at first; the feel of this song is more important than speed.",
-        ],
-        chords: ["D", "A7", "Em"],
-      },
-      {
-        id: "song-4",
-        title: "The Ballad of John and Yoko",
-        description: "A story song with a simple 8th-note strum pattern.",
-        duration: "11 min",
-        chord: "E",
-        youtubeId: "NLmIwUFOOZA",
-        steps: [
-          "The main chords are E and A — practise that switch first.",
-          "E7 and B7 show up too — go slow when they come in.",
-          "Use a steady down-up strum: down on every beat, up in between.",
-          "Hum along to keep yourself in time with the song.",
-        ],
-        chords: ["E", "E7", "A", "B7"],
-      },
-      {
-        id: "song-5",
         title: "Let It Be",
         description: "An iconic ballad. Focus on chords C, G, and Am.",
         duration: "14 min",
         chord: "C",
-        youtubeId: "ti0Um_sVFoE",
+        youtubeId: "qRFkSWfId1w", // Marty Music - Let It Be
         steps: [
           "The verse is: C → G → Am → C → G → C.",
           "Strum gently and let each chord ring — this is an emotional song.",
@@ -419,12 +517,12 @@ const CATEGORIES = {
         chords: ["C", "G", "Am"],
       },
       {
-        id: "song-6",
+        id: "song-4",
         title: "Yellow Submarine",
         description: "A crowd-pleaser everyone knows! Great for playing with family.",
         duration: "9 min",
         chord: "G",
-        youtubeId: "PDsU6MfXHWg",
+        youtubeId: "8M1lMQxE8EM", // GuitarZero2Hero - Yellow Submarine
         steps: [
           "The song is mostly G → C → G → D.",
           "Keep a fun, bouncy strum going — it's a singalong song!",
@@ -432,6 +530,36 @@ const CATEGORIES = {
           "Once you nail the chords, try strumming in time with the beat.",
         ],
         chords: ["G", "C", "D"],
+      },
+      {
+        id: "song-5",
+        title: "Here Comes the Sun",
+        description: "A beautiful George Harrison classic with a capo on the 7th fret.",
+        duration: "12 min",
+        chord: "D",
+        youtubeId: "JgPBl6R63Jw", // GuitarLessons365 - Here Comes the Sun
+        steps: [
+          "Put your capo on the 7th fret.",
+          "The main progression is D → G → A.",
+          "Focus on the picking pattern in the intro — it's iconic!",
+          "Take your time with the chord changes — they're worth it.",
+        ],
+        chords: ["D", "G", "A"],
+      },
+      {
+        id: "song-6",
+        title: "Hey Jude",
+        description: "One of the most famous songs ever. Simple chords, powerful impact.",
+        duration: "11 min",
+        chord: "D",
+        youtubeId: "aQngrKnJWvI", // Andy Guitar - Hey Jude
+        steps: [
+          "The verse uses D → A → A7 → D.",
+          "The chorus brings in G — practice the D to G transition.",
+          "The 'Na na na' outro is just D → C → G → D repeated.",
+          "Build up the energy gradually as the song progresses!",
+        ],
+        chords: ["D", "A", "A7", "G"],
       },
     ],
   },
@@ -450,14 +578,22 @@ function ChordDiagram({ chordName }) {
         {chord.name}
       </p>
       <svg width="170" height="210" viewBox="0 0 170 210">
+        {/* Nut (thick top line) */}
         <rect x="34" y="28" width="112" height="4" rx="2" fill="#5D4037" />
+        {/* Fretboard background */}
         <rect x="34" y="32" width="112" height="152" rx="4" fill="#F5E6D3" />
+        
+        {/* Fret lines */}
         {[1, 2, 3, 4].map((f) => (
           <line key={f} x1="34" y1={fretY(f)} x2="146" y2={fretY(f)} stroke="#8D6E63" strokeWidth="1.5" />
         ))}
+        
+        {/* Strings (6 strings numbered 0-5 from high E to low E) */}
         {[0, 1, 2, 3, 4, 5].map((s) => (
           <line key={s} x1={stringX(s)} y1="32" x2={stringX(s)} y2="184" stroke="#546E7A" strokeWidth="1.8" />
         ))}
+        
+        {/* Finger positions (red dots with finger numbers) */}
         {chord.fingers.map((f, i) => (
           <g key={i}>
             <circle cx={stringX(f.string)} cy={fretY(f.fret) - 19} r="10" fill="#FF6B6B" />
@@ -466,14 +602,20 @@ function ChordDiagram({ chordName }) {
             </text>
           </g>
         ))}
+        
+        {/* Open string markers (green O above nut) */}
         {chord.open.map((s) => (
-          <text key={`o-${s}`} x={stringX(s)} y="22" textAnchor="middle" fontSize="14" fill="#27AE60" fontWeight="bold">O</text>
+          <circle key={`o-${s}`} cx={stringX(s)} cy="18" r="7" fill="none" stroke="#27AE60" strokeWidth="2" />
         ))}
+        
+        {/* Muted string markers (red X above nut) */}
         {chord.muted.map((s) => (
-          <text key={`x-${s}`} x={stringX(s)} y="22" textAnchor="middle" fontSize="14" fill="#E74C3C" fontWeight="bold">×</text>
+          <text key={`x-${s}`} x={stringX(s)} y="22" textAnchor="middle" fontSize="16" fill="#E74C3C" fontWeight="bold">×</text>
         ))}
+        
+        {/* String labels at bottom */}
         {["E", "A", "D", "G", "B", "e"].map((n, i) => (
-          <text key={n} x={stringX(i)} y="205" textAnchor="middle" fontSize="11" fill="#90A4AE">{n}</text>
+          <text key={n} x={stringX(i)} y="205" textAnchor="middle" fontSize="11" fill="#90A4AE" fontFamily="'Fredoka', cursive">{n}</text>
         ))}
       </svg>
       <p className="text-sm mt-1 text-center px-2" style={{ color: "#636E72", maxWidth: 160 }}>
@@ -483,7 +625,74 @@ function ChordDiagram({ chordName }) {
   );
 }
 
-// ─── MAIN APP (WITH AUTH) ───────────────────────────────────────────────────
+// ─── ACHIEVEMENT POPUP ──────────────────────────────────────────────────────
+function AchievementPopup({ achievement, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div 
+      style={{
+        position: 'fixed',
+        top: '2rem',
+        right: '2rem',
+        zIndex: 1000,
+        animation: 'slideInRight 0.5s ease-out',
+      }}
+    >
+      <div 
+        className="rounded-2xl p-4 shadow-2xl"
+        style={{
+          background: 'white',
+          border: `3px solid ${achievement.color}`,
+          minWidth: '300px',
+        }}
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <div 
+            className="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
+            style={{ background: achievement.color }}
+          >
+            {achievement.icon}
+          </div>
+          <div className="flex-1">
+            <div className="text-xs font-bold" style={{ color: achievement.color }}>
+              🎉 ACHIEVEMENT UNLOCKED!
+            </div>
+            <h3 className="font-bold text-base" style={{ color: '#2D3436', fontFamily: "'Fredoka', cursive" }}>
+              {achievement.title}
+            </h3>
+          </div>
+        </div>
+        <p className="text-sm" style={{ color: '#636E72' }}>
+          {achievement.description}
+        </p>
+        <div className="flex items-center gap-2 mt-2">
+          <Star size={16} color="#F39C12" fill="#F39C12" />
+          <span className="text-sm font-bold" style={{ color: '#F39C12' }}>
+            +{achievement.points} points
+          </span>
+        </div>
+      </div>
+      <style>{`
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(100px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── MAIN APP (WITH AUTH & ACHIEVEMENTS) ────────────────────────────────────
 function GuitarJourneyApp() {
   const [view, setView] = useState("home");
   const [selectedCategory, setSelectedCategory] = useState("basics");
@@ -493,39 +702,68 @@ function GuitarJourneyApp() {
   const [dbClient, setDbClient] = useState(null);
   const [userId, setUserId] = useState(null);
   const [userName, setUserName] = useState("");
+  const [userProgress, setUserProgress] = useState({
+    completedLessons: [],
+    unlockedAchievements: [],
+    totalPoints: 0,
+    streakDays: 0,
+    lastPracticeDate: null,
+    dailyLessons: {}
+  });
+  const [newAchievement, setNewAchievement] = useState(null);
 
   const totalLessons = Object.values(CATEGORIES).reduce((sum, c) => sum + c.lessons.length, 0);
   const progressPercent = Math.round((completed.size / totalLessons) * 100);
+
+  // Check for new achievements
+  function checkAchievements(updatedProgress) {
+    const newAchievements = [];
+    
+    Object.values(ACHIEVEMENTS).forEach(achievement => {
+      if (!updatedProgress.unlockedAchievements.includes(achievement.id)) {
+        if (achievement.check(updatedProgress)) {
+          newAchievements.push(achievement);
+        }
+      }
+    });
+
+    return newAchievements;
+  }
 
   // Initialize DynamoDB client and load user progress
   useEffect(() => {
     async function initializeUser() {
       try {
-        // Get current user
         const user = await getCurrentUser();
         setUserId(user.userId);
         setUserName(user.signInDetails?.loginId || "User");
 
-        // Get AWS credentials from Cognito
         const session = await fetchAuthSession();
-        
         const client = new DynamoDBClient({
-          region: "us-east-1", // Change to your region
+          region: "us-east-1",
           credentials: session.credentials,
         });
         
         const docClient = DynamoDBDocumentClient.from(client);
         setDbClient(docClient);
 
-        // Load existing progress from DynamoDB
         const command = new GetCommand({
           TableName: "guitar-journey-user-progress",
           Key: { userId: user.userId },
         });
 
         const response = await docClient.send(command);
-        if (response.Item?.completedLessons) {
-          setCompleted(new Set(response.Item.completedLessons));
+        if (response.Item) {
+          const progress = {
+            completedLessons: response.Item.completedLessons || [],
+            unlockedAchievements: response.Item.unlockedAchievements || [],
+            totalPoints: response.Item.totalPoints || 0,
+            streakDays: response.Item.streakDays || 0,
+            lastPracticeDate: response.Item.lastPracticeDate || null,
+            dailyLessons: response.Item.dailyLessons || {}
+          };
+          setUserProgress(progress);
+          setCompleted(new Set(progress.completedLessons));
         }
       } catch (error) {
         console.error("Error initializing user:", error);
@@ -535,10 +773,69 @@ function GuitarJourneyApp() {
     initializeUser();
   }, []);
 
+  // Update streak
+  function updateStreak(lastDate) {
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (!lastDate) {
+      return { streakDays: 1, lastPracticeDate: today };
+    }
+
+    const lastPractice = new Date(lastDate);
+    const todayDate = new Date(today);
+    const diffTime = todayDate - lastPractice;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      // Same day
+      return { streakDays: userProgress.streakDays, lastPracticeDate: today };
+    } else if (diffDays === 1) {
+      // Next day - increment streak
+      return { streakDays: userProgress.streakDays + 1, lastPracticeDate: today };
+    } else {
+      // Streak broken - reset to 1
+      return { streakDays: 1, lastPracticeDate: today };
+    }
+  }
+
   // Save progress to DynamoDB
   async function saveProgress(lessonId) {
     const newCompleted = new Set([...completed, lessonId]);
     setCompleted(newCompleted);
+
+    const today = new Date().toISOString().split('T')[0];
+    const streakUpdate = updateStreak(userProgress.lastPracticeDate);
+    
+    // Update daily lesson count
+    const dailyLessons = { ...userProgress.dailyLessons };
+    dailyLessons[today] = (dailyLessons[today] || 0) + 1;
+
+    const updatedProgress = {
+      ...userProgress,
+      completedLessons: Array.from(newCompleted),
+      streakDays: streakUpdate.streakDays,
+      lastPracticeDate: streakUpdate.lastPracticeDate,
+      dailyLessons
+    };
+
+    // Check for new achievements
+    const newAchievements = checkAchievements(updatedProgress);
+    
+    if (newAchievements.length > 0) {
+      const newAchievementIds = newAchievements.map(a => a.id);
+      const newPoints = newAchievements.reduce((sum, a) => sum + a.points, 0);
+      
+      updatedProgress.unlockedAchievements = [
+        ...updatedProgress.unlockedAchievements,
+        ...newAchievementIds
+      ];
+      updatedProgress.totalPoints = (updatedProgress.totalPoints || 0) + newPoints;
+
+      // Show popup for first achievement
+      setNewAchievement(newAchievements[0]);
+    }
+
+    setUserProgress(updatedProgress);
 
     if (dbClient && userId) {
       try {
@@ -546,7 +843,7 @@ function GuitarJourneyApp() {
           TableName: "guitar-journey-user-progress",
           Item: {
             userId: userId,
-            completedLessons: Array.from(newCompleted),
+            ...updatedProgress,
             lastUpdated: new Date().toISOString(),
           },
         });
@@ -568,6 +865,90 @@ function GuitarJourneyApp() {
     } catch (error) {
       console.error("Error signing out:", error);
     }
+  }
+
+  // ── ACHIEVEMENTS VIEW ───────────────────────────────────────────────────
+  if (view === "achievements") {
+    const unlockedCount = userProgress.unlockedAchievements.length;
+    const totalAchievements = Object.keys(ACHIEVEMENTS).length;
+
+    return (
+      <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #FFF9F0 0%, #FFE8E8 100%)", fontFamily: "'Work Sans', sans-serif" }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Work+Sans:wght@400;500;600&display=swap');`}</style>
+        <div className="max-w-2xl mx-auto p-4 pt-6">
+          <button onClick={() => setView("home")} className="flex items-center gap-1 mb-4 text-sm font-semibold" style={{ color: "#FF6B6B", fontFamily: "'Fredoka', cursive" }}>
+            <ArrowLeft size={18} /> Back to Lessons
+          </button>
+
+          <div className="bg-white rounded-2xl p-6 mb-5 shadow-sm border border-gray-100">
+            <div className="flex items-center gap-3 mb-4">
+              <Trophy size={32} color="#F39C12" />
+              <div>
+                <h1 className="text-2xl font-bold" style={{ color: "#2D3436", fontFamily: "'Fredoka', cursive" }}>
+                  Your Achievements
+                </h1>
+                <p className="text-sm" style={{ color: "#636E72" }}>
+                  {unlockedCount} of {totalAchievements} unlocked • {userProgress.totalPoints} total points
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full h-3 rounded-full mb-4" style={{ background: "#F0F0F0" }}>
+              <div className="h-3 rounded-full transition-all" style={{ 
+                width: `${(unlockedCount / totalAchievements) * 100}%`,
+                background: "linear-gradient(90deg, #F39C12, #E74C3C)"
+              }} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {Object.values(ACHIEVEMENTS).map(achievement => {
+              const isUnlocked = userProgress.unlockedAchievements.includes(achievement.id);
+              
+              return (
+                <div
+                  key={achievement.id}
+                  className="bg-white rounded-2xl p-4 shadow-sm border"
+                  style={{
+                    borderColor: isUnlocked ? achievement.color : '#E8E8E8',
+                    opacity: isUnlocked ? 1 : 0.6,
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div 
+                      className="w-14 h-14 rounded-full flex items-center justify-center text-2xl flex-shrink-0"
+                      style={{ 
+                        background: isUnlocked ? achievement.color : '#E8E8E8'
+                      }}
+                    >
+                      {isUnlocked ? achievement.icon : "🔒"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-base" style={{ color: "#2D3436", fontFamily: "'Fredoka', cursive" }}>
+                          {achievement.title}
+                        </h3>
+                        {isUnlocked && (
+                          <div className="flex items-center gap-1">
+                            <Star size={14} color="#F39C12" fill="#F39C12" />
+                            <span className="text-xs font-bold" style={{ color: '#F39C12' }}>
+                              {achievement.points}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm" style={{ color: "#636E72" }}>
+                        {achievement.description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ── LESSON VIEW ─────────────────────────────────────────────────────────
@@ -650,9 +1031,15 @@ function GuitarJourneyApp() {
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #FFF9F0 0%, #FFE8E8 100%)", fontFamily: "'Work Sans', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Work+Sans:wght@400;500;600&display=swap');`}</style>
-      <div className="max-w-2xl mx-auto p-4 pt-6">
+      
+      {newAchievement && (
+        <AchievementPopup 
+          achievement={newAchievement} 
+          onClose={() => setNewAchievement(null)} 
+        />
+      )}
 
-        {/* User header with sign out */}
+      <div className="max-w-2xl mx-auto p-4 pt-6">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
             <User size={20} color="#FF6B6B" />
@@ -680,6 +1067,28 @@ function GuitarJourneyApp() {
           <p className="text-sm" style={{ color: "#636E72" }}>Learn guitar at your own pace — inspired by The Beatles 🎸</p>
         </div>
 
+        {/* Achievements Banner */}
+        <button
+          onClick={() => setView("achievements")}
+          className="w-full bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100 transition-all hover:shadow-md"
+          style={{ cursor: "pointer" }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Trophy size={28} color="#F39C12" />
+              <div className="text-left">
+                <h3 className="font-bold text-base" style={{ color: "#2D3436", fontFamily: "'Fredoka', cursive" }}>
+                  Achievements
+                </h3>
+                <p className="text-xs" style={{ color: "#636E72" }}>
+                  {userProgress.unlockedAchievements.length} unlocked • {userProgress.totalPoints} points
+                </p>
+              </div>
+            </div>
+            <ChevronRight size={20} color="#F39C12" />
+          </div>
+        </button>
+
         <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-semibold" style={{ color: "#2D3436", fontFamily: "'Fredoka', cursive" }}>Your Progress</span>
@@ -697,8 +1106,8 @@ function GuitarJourneyApp() {
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: "Completed", value: completed.size, icon: "✅", bg: "linear-gradient(135deg,#FFE8E8,#FFD6D6)", color: "#FF6B6B" },
-            { label: "Remaining", value: totalLessons - completed.size, icon: "📚", bg: "linear-gradient(135deg,#E8F8F5,#D1F2EB)", color: "#4ECDC4" },
-            { label: "Level", value: "Beginner", icon: "⭐", bg: "linear-gradient(135deg,#FFF9E6,#FFEECC)", color: "#F39C12" },
+            { label: "Streak", value: `${userProgress.streakDays} days`, icon: "🔥", bg: "linear-gradient(135deg,#FFF0E6,#FFE0CC)", color: "#FF6B6B" },
+            { label: "Points", value: userProgress.totalPoints, icon: "⭐", bg: "linear-gradient(135deg,#FFF9E6,#FFEECC)", color: "#F39C12" },
           ].map((s) => (
             <div key={s.label} className="rounded-2xl p-3 text-center" style={{ background: s.bg }}>
               <div className="text-xl">{s.icon}</div>
